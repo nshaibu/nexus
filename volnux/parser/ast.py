@@ -269,7 +269,7 @@ class MapNode(ASTNode):
 
 @dataclass
 class PipelineGroupingNode(ASTNode):
-    """AST for expression chain. One expression chain only"""
+    """AST for a grouped pipeline expression containing one or more chains."""
 
     expressions: typing.List[ASTNode]
     grouping_strategy: "GroupingStrategy" = None

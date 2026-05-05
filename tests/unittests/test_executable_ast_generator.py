@@ -617,39 +617,22 @@ class TestVisitPipelineGrouping(unittest.TestCase):
 
     # ------------------------------------------------------------------
     # Multi-chain grouping  {A->B, C->D}
-    # NOTE: the current grammar only supports single-chain {chain} syntax;
-    # multi-expression PipelineGroupingNode can only be constructed directly.
     # ------------------------------------------------------------------
 
     def test_multi_chain_grouping_has_two_chains(self):
-        """Directly construct a multi-chain grouping node and verify the generator."""
-        from volnux.parser.ast import PipelineGroupingNode, BinOpNode, TaskNode as TN
-        gen = ExecutableASTGenerator(PipelineTask, PipelineTaskGrouping)
-        chain1 = BinOpNode(left=TN(task="Alpha", options=[]), op="->", right=TN(task="Beta", options=[]))
-        chain2 = BinOpNode(left=TN(task="Gamma", options=[]), op="->", right=TN(task="Alpha", options=[]))
-        node = PipelineGroupingNode(expressions=[chain1, chain2])
-        result = gen.visit_pipeline_grouping(node)
+        result = _build("{Alpha->Beta, Gamma->Delta}")
+        self.assertIsInstance(result, PipelineTaskGrouping)
         self.assertEqual(len(result.chains), 2)
 
     def test_multi_chain_grouping_chain_heads_correct(self):
-        from volnux.parser.ast import PipelineGroupingNode, BinOpNode, TaskNode as TN
-        gen = ExecutableASTGenerator(PipelineTask, PipelineTaskGrouping)
-        chain1 = BinOpNode(left=TN(task="Alpha", options=[]), op="->", right=TN(task="Beta", options=[]))
-        chain2 = BinOpNode(left=TN(task="Gamma", options=[]), op="->", right=TN(task="Alpha", options=[]))
-        node = PipelineGroupingNode(expressions=[chain1, chain2])
-        result = gen.visit_pipeline_grouping(node)
+        result = _build("{Alpha->Beta, Gamma->Delta}")
         names = {c.get_event_name() for c in result.chains}
         self.assertIn("Alpha", names)
         self.assertIn("Gamma", names)
 
     def test_multi_chain_grouping_strategy(self):
-        from volnux.parser.ast import PipelineGroupingNode, BinOpNode, TaskNode as TN
         from volnux.parser.protocols import GroupingStrategy
-        gen = ExecutableASTGenerator(PipelineTask, PipelineTaskGrouping)
-        chain1 = BinOpNode(left=TN(task="Alpha", options=[]), op="->", right=TN(task="Beta", options=[]))
-        chain2 = BinOpNode(left=TN(task="Gamma", options=[]), op="->", right=TN(task="Alpha", options=[]))
-        node = PipelineGroupingNode(expressions=[chain1, chain2])
-        result = gen.visit_pipeline_grouping(node)
+        result = _build("{Alpha->Beta, Gamma->Delta}")
         self.assertEqual(result.strategy, GroupingStrategy.MULTIPATH_CHAINS)
 
     # ------------------------------------------------------------------

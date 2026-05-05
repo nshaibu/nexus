@@ -269,15 +269,26 @@ def p_mode(p):
     p[0] = p[1]
 
 
+def p_grouped_chain_list(p):
+    """
+    grouped_chain_list : chain
+                       | grouped_chain_list SEPARATOR chain
+    """
+    if len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        p[0] = p[1] + [p[3]]
+
+
 def p_grouped(p):
     """
-    grouped : LCURLY_BRACKET chain RCURLY_BRACKET
-            | LCURLY_BRACKET chain RCURLY_BRACKET attribute_list
+    grouped : LCURLY_BRACKET grouped_chain_list RCURLY_BRACKET
+            | LCURLY_BRACKET grouped_chain_list RCURLY_BRACKET attribute_list
     """
     if len(p) == 4:
-        p[0] = PipelineGroupingNode([p[2]])
+        p[0] = PipelineGroupingNode(p[2])
     else:
-        p[0] = PipelineGroupingNode([p[2]], options=p[4])
+        p[0] = PipelineGroupingNode(p[2], options=p[4])
 
 
 def p_expression_ternary(p):

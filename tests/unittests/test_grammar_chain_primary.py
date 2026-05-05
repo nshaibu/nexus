@@ -4,12 +4,14 @@ from volnux.parser.grammar import pointy_parser
 from volnux.parser.ast import (
     TaskNode,
     AttributeNode,
+    BinOpNode,
     MetaTaskNode,
     LiteralNode,
     VariableAccessNode,
     RetryNode,
     PipelineGroupingNode,
 )
+from volnux.parser.protocols import GroupingStrategy
 
 
 class TestGrammarChainPrimary(unittest.TestCase):
@@ -465,6 +467,67 @@ class TestGrammarRetry(unittest.TestCase):
     def test_retry_nonint_token_raises(self):
         with self.assertRaises(SyntaxError):
             pointy_parser('DoIt * three')
+
+
+class TestGrammarMultiChainGrouping(unittest.TestCase):
+    """Tests for multichain pipeline grouping syntax: {A->B, C->D}."""
+
+    def test_multi_chain_produces_pipeline_grouping_node(self):
+        program = pointy_parser('{Alpha->Beta, Gamma->Delta}')
+        self.assertIsInstance(program.chain, PipelineGroupingNode)
+
+    def test_multi_chain_has_two_expressions(self):
+        program = pointy_parser('{Alpha->Beta, Gamma->Delta}')
+        self.assertEqual(len(program.chain.expressions), 2)
+
+    def test_multi_chain_strategy_is_multipath(self):
+        program = pointy_parser('{Alpha->Beta, Gamma->Delta}')
+        self.assertEqual(program.chain.grouping_strategy, GroupingStrategy.MULTIPATH_CHAINS)
+
+    def test_multi_chain_three_chains(self):
+        program = pointy_parser('{A->B, C->D, E->F}')
+        self.assertEqual(len(program.chain.expressions), 3)
+
+    def test_multi_chain_expressions_are_binop(self):
+        program = pointy_parser('{Alpha->Beta, Gamma->Delta}')
+        for expr in program.chain.expressions:
+            self.assertIsInstance(expr, BinOpNode)
+
+    def test_multi_chain_first_chain_head(self):
+        program = pointy_parser('{Alpha->Beta, Gamma->Delta}')
+        first_chain = program.chain.expressions[0]
+        self.assertIsInstance(first_chain.left, TaskNode)
+        self.assertEqual(first_chain.left.task, 'Alpha')
+
+    def test_multi_chain_second_chain_head(self):
+        program = pointy_parser('{Alpha->Beta, Gamma->Delta}')
+        second_chain = program.chain.expressions[1]
+        self.assertIsInstance(second_chain.left, TaskNode)
+        self.assertEqual(second_chain.left.task, 'Gamma')
+
+    def test_single_chain_backward_compat(self):
+        """Single-chain {A->B} must still parse and use SINGLE_CHAIN strategy."""
+        program = pointy_parser('{Alpha->Beta}')
+        node = program.chain
+        self.assertIsInstance(node, PipelineGroupingNode)
+        self.assertEqual(len(node.expressions), 1)
+        self.assertEqual(node.grouping_strategy, GroupingStrategy.SINGLE_CHAIN)
+
+    def test_multi_chain_with_options(self):
+        program = pointy_parser('{Alpha->Beta, Gamma->Delta}[opt = 1]')
+        node = program.chain
+        self.assertIsInstance(node, PipelineGroupingNode)
+        self.assertEqual(len(node.expressions), 2)
+        self.assertIsNotNone(node.options)
+        self.assertEqual(len(node.options), 1)
+        self.assertEqual(node.options[0].attr, 'opt')
+
+    def test_multi_chain_parallel_chains(self):
+        """Each chain inside grouping can itself use parallel operator."""
+        program = pointy_parser('{A||B, C->D}')
+        node = program.chain
+        self.assertIsInstance(node, PipelineGroupingNode)
+        self.assertEqual(len(node.expressions), 2)
 
 
 if __name__ == "__main__":
