@@ -185,14 +185,56 @@ class ExecutableASTGenerator(ASTVisitorInterface):
     def visit_meta_event(self, node: ast.MetaTaskNode):
         pass
 
+
     def visit_unaryop(self, node: ast.UnaryOpNode):
-        pass
+        # Evaluate the right-hand expression first
+        right_value = node.right.accept(self)
 
-    def visit_list(self, node: ast.ListNode):
-        pass
+        op = node.op
 
-    def visit_map(self, node: ast.MapNode):
-        pass
+        # Logical NOT: return boolean inversion based on truthiness
+        if op == "!":
+            return not self._is_truthy(right_value)
+
+        # Unary minus: numeric negation
+        if op == "-":
+            if isinstance(right_value, (int, float, bool)):
+                return -right_value
+            raise PointyParseError(f"Unary '-' applied to non-numeric value: {right_value!r}")
+
+        # Bitwise NOT: only valid for integers (booleans are ints in Python but warn elsewhere)
+        if op == "~":
+            if isinstance(right_value, int) and not isinstance(right_value, bool):
+                return ~right_value
+            # allow bool too (it's an int subclass) to maintain intuitive behaviour
+            if isinstance(right_value, bool):
+                return ~int(right_value)
+            raise PointyParseError(f"Bitwise NOT '~' applied to non-integer value: {right_value!r}")
+
+        # Unknown unary operator: raise
+        raise PointyParseError(f"Unknown unary operator '{op}'")
+
+    def visit_list(self, node: ast.ListNode) -> typing.List[typing.Any]:
+        """Resolve a ListNode into a plain Python list by visiting each element.
+
+        Each element may be a LiteralNode, ListNode, MapNode, VariableAccessNode,
+        or any expression — we return whatever its visitor resolves to.
+        """
+        resolved = []
+        for item in node.value:
+            # Each item is an AST node; dispatch to its visitor
+            resolved.append(item.accept(self))
+        return resolved
+
+    def visit_map(self, node: ast.MapNode) -> typing.Dict[str, typing.Any]:
+        """Resolve a MapNode into a plain Python dict by visiting each value.
+
+        Keys are strings per the grammar; values are resolved via visitor dispatch.
+        """
+        resolved: typing.Dict[str, typing.Any] = {}
+        for key, value in node.value.items():
+            resolved[key] = value.accept(self)
+        return resolved
 
     def visit_meta_task(self, node: ast.MetaTaskNode):
         pass
