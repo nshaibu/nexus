@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class ExecutableASTGenerator(ASTVisitorInterface):
+
     def __init__(
         self,
         task_template: typing.Type[TaskProtocol],
@@ -32,54 +33,23 @@ class ExecutableASTGenerator(ASTVisitorInterface):
             if isinstance(result, Exception):
                 logger.warning(f"Failed to set recursive-depth: {result}")
 
-    def _visit_node(self, node: ast.ASTNode):
-        """Generic node visitor dispatcher"""
-        if isinstance(node, ast.ProgramNode):
-            return self.visit_program(node)
-        elif isinstance(node, ast.BinOpNode):
-            return self.visit_binop(node)
-        elif isinstance(node, ast.DescriptorNode):
-            return self.visit_descriptor(node)
-        elif isinstance(node, ast.TaskNode):
-            return self.visit_task(node)
-        elif isinstance(node, ast.PipelineGroupingNode):
-            return self.visit_expression_grouping(node)
-        elif isinstance(node, ast.ConditionalNode):
-            return self.visit_conditional(node)
-        elif isinstance(node, ast.AssignmentNode):
-            return self.visit_assignment(node)
-        elif isinstance(node, ast.BlockNode):
-            return self.visit_block(node)
-        elif isinstance(node, ast.LiteralNode):
-            return self.visit_literal(node)
-        elif isinstance(node, ast.EnvironmentVariableAccessNode):
-            return self.visit_environment_variable_access(node)
-        elif isinstance(node, ast.VariableAccessNode):
-            return self.visit_variable_access(node)
-        elif isinstance(node, ast.MetaTaskNode):
-            return self.visit_meta_event(node)
-        else:
-            raise PointyParseError(f"Unknown node type: {type(node)}")
-
     def visit_program(self, node: ast.ProgramNode):
         for directive_name, directive_value in node.directives.items():
-            self.apply_directive(directive_name, self._visit_node(directive_value))
+            self.apply_directive(directive_name, directive_value.accept(self))
 
         chain = node.chain
         if chain is None:
             return
         self._generated_task_chain = None
         self._current_task = None
-        self._visit_node(chain)
+        chain.accept(self)
 
-    def visit_binop(
-        self, node: ast.BinOpNode
-    ) -> typing.Union[TaskProtocol, TaskGroupingProtocol]:
+    def visit_binop(self, node: ast.BinOpNode) -> typing.Union[TaskProtocol, TaskGroupingProtocol]:
         left_instance: typing.Union[TaskProtocol, TaskGroupingProtocol] = (
-            self._visit_node(node.left)
+            node.left.accept(self)
         )
         right_instance: typing.Union[TaskProtocol, TaskGroupingProtocol] = (
-            self._visit_node(node.right)
+            node.right.accept(self)
         )
 
         if isinstance(
@@ -148,27 +118,10 @@ class ExecutableASTGenerator(ASTVisitorInterface):
             )
         return instance
 
-    def visit_group_block(self, node: ast.BlockNode):
-        raise NotImplementedError("Not Supported yet")
-
     def visit_literal(self, node: ast.LiteralNode) -> typing.Union[int, str, float]:
         return node.value
 
-    def visit_assignment(self, node: ast.AssignmentNode):
-        return {node.target: self._visit_node(node.value)}
-
-    def visit_assignment_block(
-        self, node: ast.BlockNode
-    ) -> typing.Dict[str, typing.Any]:
-        assign = {}
-        statements = typing.cast(typing.List[ast.AssignmentNode], node.statements)
-        for statement in statements:
-            assign.update(self.visit_assignment(statement))
-        return assign
-
-    def visit_expression_grouping(
-        self, node: ast.PipelineGroupingNode
-    ) -> TaskGroupingProtocol:
+    def visit_expression_grouping(self, node: ast.PipelineGroupingNode) -> TaskGroupingProtocol:
         expression_chain_groups = [
             self._visit_node(chain) for chain in node.expressions
         ]
@@ -186,15 +139,12 @@ class ExecutableASTGenerator(ASTVisitorInterface):
         """Visit individual directive node"""
         return self._visit_node(node.value)
 
-    # def visit_variable_access(self, node: ast.VariableAccessNode):
-    #     return self._visit_node(node.value)
-
     def visit_conditional(self, node: ast.ConditionalNode):
-        parent = self.visit_task(node.task)
+        parent = node.task.accept(self)
 
-        for statement in node.branches.statements:
+        for branch in node.branches:
             instance: typing.Union[TaskProtocol, TaskGroupingProtocol] = (
-                self._visit_node(statement)
+                branch.accept(self)
             )
             if instance:
                 self._current_task = instance
@@ -224,15 +174,10 @@ class ExecutableASTGenerator(ASTVisitorInterface):
                         )
             else:
                 logger.warning(
-                    f"Failed to add descriptor for conditional event {statement}"
+                    f"Failed to add descriptor for conditional event {branch}"
                 )
 
         return parent
-
-    def visit_environment_variable_access(
-        self, node: ast.EnvironmentVariableAccessNode
-    ):
-        return node.resolve()
 
     def visit_variable_access(self, node: ast.VariableAccessNode):
         return node.resolve()
@@ -243,29 +188,52 @@ class ExecutableASTGenerator(ASTVisitorInterface):
     def visit_unaryop(self, node: ast.UnaryOpNode):
         pass
 
-    def visit_access_environment_variable(
-        self, node: ast.EnvironmentVariableAccessNode
-    ):
-        pass
-
     def visit_list(self, node: ast.ListNode):
         pass
 
     def visit_map(self, node: ast.MapNode):
         pass
 
-    def visit_unaryop(self, node: ast.UnaryOpNode):
+    def visit_pipeline_grouping(self, node: ast.PipelineGroupingNode):
         pass
 
-    def visit_access_environment_variable(
-        self, node: ast.EnvironmentVariableAccessNode
-    ):
+    def visit_meta_task(self, node: ast.MetaTaskNode):
         pass
 
-    def visit_list(self, node: ast.ListNode):
+    def visit_variable_declaration(self, node: ast.VariableDeclNode):
         pass
 
-    def visit_map(self, node: ast.MapNode):
+    def visit_null_coalesce(self, node: ast.NullCoalesceExprNode):
+        pass
+
+    def visit_comparison_expr(self, node: ast.ComparisonExprNode):
+        pass
+
+    def visit_branch(self, node: ast.BranchNode):
+        instance = node.task.accept(self)
+
+        if instance is None:
+            logger.warning(f"visit_branch: task sub-tree returned None for {node}")
+            return None
+
+        root = instance.get_root()
+        root.descriptor = node.condition.accept(self)
+        root.descriptor_pipe = node.operator
+        return root
+
+    def visit_index_expr(self, node: ast.IndexExprNode):
+        pass
+
+    def visit_retry(self, node: ast.RetryNode):
+        pass
+
+    def visit_attribute(self, node: ast.AttributeNode):
+        pass
+
+    def visit_ternary_expr(self, node: ast.TernaryExprNode):
+        pass
+
+    def visit_access_environment_variable(self, node: ast.EnvironmentVariableAccessNode):
         pass
 
     def generate(self) -> typing.Optional[TaskProtocol]:
