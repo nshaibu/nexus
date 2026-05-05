@@ -122,7 +122,6 @@ def p_conditional(p):
         p[0] = ConditionalNode(task=p[1], branches=p[3])
 
 
-
 def p_branch_list(p):
     """
     branch_list : branch
@@ -158,19 +157,6 @@ def p_chain(p):
         p[0] = p[1]
     else:
         p[0] = BinOpNode(left=p[1], op=p[2], right=p[3])
-
-def p_meta(p):
-    """
-    meta : task
-         | meta_task
-         | grouped
-         | conditional
-         | LPAREN chain RPAREN
-    """
-    if len(p) == 2:
-        p[0] = p[1]
-    else:
-        p[0] = p[2]
 
 def p_meta(p):
     """

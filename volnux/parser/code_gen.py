@@ -113,31 +113,31 @@ class ExecutableASTGenerator(ASTVisitorInterface):
         instance = self.task_template(event=node.task)
         self._current_task = instance
         if node.options:
-            instance.options = Options.from_dict(
-                self.visit_assignment_block(node.options)
-            )
+            options_dict = dict(attr.accept(self) for attr in node.options)
+            instance.options = Options.from_dict(options_dict)
         return instance
 
     def visit_literal(self, node: ast.LiteralNode) -> typing.Union[int, str, float]:
         return node.value
 
-    def visit_expression_grouping(self, node: ast.PipelineGroupingNode) -> TaskGroupingProtocol:
-        expression_chain_groups = [
-            self._visit_node(chain) for chain in node.expressions
-        ]
+    def visit_pipeline_grouping(self, node: ast.PipelineGroupingNode) -> TaskGroupingProtocol:
+        chains = []
+        for expr in node.expressions:
+            result = expr.accept(self)
+            if result is not None:
+                chains.append(result.get_root())
 
-        # create instance of expression group
-        instance = self.grouping_template(expression_chain_groups)
+        instance = self.grouping_template(chains)
         self._current_task = instance
         if node.options:
-            instance.options = Options.from_dict(
-                self.visit_assignment_block(node.options)
-            )
+            options_dict = dict(attr.accept(self) for attr in node.options)
+            instance.options = Options.from_dict(options_dict)
         return instance
 
     def visit_directive(self, node: ast.DirectiveNode):
-        """Visit individual directive node"""
-        return self._visit_node(node.value)
+        """Visit individual directive node — resolves the value only.
+        The name is handled upstream by visit_program via ProgramNode.directives."""
+        return node.value.accept(self)
 
     def visit_conditional(self, node: ast.ConditionalNode):
         parent = node.task.accept(self)
@@ -194,9 +194,6 @@ class ExecutableASTGenerator(ASTVisitorInterface):
     def visit_map(self, node: ast.MapNode):
         pass
 
-    def visit_pipeline_grouping(self, node: ast.PipelineGroupingNode):
-        pass
-
     def visit_meta_task(self, node: ast.MetaTaskNode):
         pass
 
@@ -227,8 +224,9 @@ class ExecutableASTGenerator(ASTVisitorInterface):
     def visit_retry(self, node: ast.RetryNode):
         pass
 
-    def visit_attribute(self, node: ast.AttributeNode):
-        pass
+    def visit_attribute(self, node: ast.AttributeNode) -> typing.Tuple[str, typing.Any]:
+        """Returns a (key, resolved_value) pair; callers build a dict via dict(attr.accept(self) for attr in options)."""
+        return node.attr, node.value.accept(self)
 
     def visit_ternary_expr(self, node: ast.TernaryExprNode):
         pass

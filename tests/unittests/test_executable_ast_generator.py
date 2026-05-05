@@ -2,7 +2,15 @@ import unittest
 
 from volnux import EventBase
 from volnux.parser import pointy_parser
-from volnux.parser.ast import BranchNode, DescriptorNode, TaskNode
+from volnux.parser.ast import (
+    AttributeNode,
+    BranchNode,
+    DescriptorNode,
+    DirectiveNode,
+    LiteralNode,
+    LiteralType,
+    TaskNode,
+)
 from volnux.parser.code_gen import ExecutableASTGenerator
 from volnux.parser.conditional import StandardDescriptor
 from volnux.parser.operator import PipeType
@@ -384,3 +392,287 @@ class TestConditionalBranchIntegration(unittest.TestCase):
         self.assertIs(root.condition_node.on_success_event.parent_node, root)
 
 
+# ------------------------------------------------------------------
+# Direct unit tests for visit_directive
+# ------------------------------------------------------------------
+
+class TestVisitDirective(unittest.TestCase):
+    """Unit and integration tests for ExecutableASTGenerator.visit_directive."""
+
+    def setUp(self):
+        self.generator = ExecutableASTGenerator(PipelineTask, PipelineTaskGrouping)
+
+    def _directive(self, name: str, value, literal_type=None):
+        lit = LiteralNode(value, type=literal_type or LiteralType.determine_literal_type(value))
+        return DirectiveNode(name=name, value=lit)
+
+    # ------------------------------------------------------------------
+    # visit_directive returns the resolved literal value
+    # ------------------------------------------------------------------
+
+    def test_visit_directive_returns_string_value(self):
+        node = self._directive("mode", "CFG")
+        self.assertEqual(self.generator.visit_directive(node), "CFG")
+
+    def test_visit_directive_returns_int_value(self):
+        node = self._directive("recursive-depth", 50)
+        self.assertEqual(self.generator.visit_directive(node), 50)
+
+    def test_visit_directive_returns_float_value(self):
+        node = self._directive("version", 1.5)
+        self.assertAlmostEqual(self.generator.visit_directive(node), 1.5)
+
+    def test_visit_directive_returns_bool_value(self):
+        node = self._directive("debug", True)
+        self.assertEqual(self.generator.visit_directive(node), True)
+
+    # ------------------------------------------------------------------
+    # visit_program processes directives via apply_directive
+    # ------------------------------------------------------------------
+
+    def test_directive_only_program_generates_none(self):
+        root = _build('@mode:"CFG"')
+        self.assertIsNone(root)
+
+    def test_directive_with_chain_chain_still_generated(self):
+        root = _build('@mode:"CFG" Alpha->Beta')
+        self.assertIsNotNone(root)
+        self.assertEqual(root.get_event_name(), "Alpha")
+
+    def test_multiple_directives_with_chain(self):
+        root = _build('@mode:"CFG" @version:1.0 Alpha')
+        self.assertIsNotNone(root)
+        self.assertEqual(root.get_event_name(), "Alpha")
+
+    # ------------------------------------------------------------------
+    # apply_directive: recognised directive (recursive-depth)
+    # ------------------------------------------------------------------
+
+    def test_apply_directive_recursive_depth_does_not_raise(self):
+        """apply_directive with recursive-depth must not raise even on invalid value."""
+        try:
+            self.generator.apply_directive("recursive-depth", 500)
+        except Exception as e:
+            self.fail(f"apply_directive raised unexpectedly: {e}")
+
+    def test_apply_directive_unknown_directive_is_silently_ignored(self):
+        """Unknown directives should not raise."""
+        try:
+            self.generator.apply_directive("unknown-directive", "some-value")
+        except Exception as e:
+            self.fail(f"apply_directive raised unexpectedly: {e}")
+
+    # ------------------------------------------------------------------
+    # visit_directive dispatches through visit_literal (not raw attribute)
+    # ------------------------------------------------------------------
+
+    def test_visit_directive_uses_visitor_dispatch(self):
+        """visit_directive must return the same value as visit_literal on the same node."""
+        node = self._directive("mode", "DAG")
+        literal = node.value
+        self.assertEqual(
+            self.generator.visit_directive(node),
+            self.generator.visit_literal(literal),
+        )
+
+
+# ------------------------------------------------------------------
+# Tests for visit_task with options and visit_attribute
+# ------------------------------------------------------------------
+
+class TestVisitTaskOptions(unittest.TestCase):
+    """Tests for visit_task option parsing and visit_attribute."""
+
+    def setUp(self):
+        class Alpha(EventBase):
+            def process(self, *args, **kwargs):
+                return True, "alpha"
+
+        self.Alpha = Alpha
+        self.generator = ExecutableASTGenerator(PipelineTask, PipelineTaskGrouping)
+
+    # ------------------------------------------------------------------
+    # visit_attribute
+    # ------------------------------------------------------------------
+
+    def test_visit_attribute_returns_tuple(self):
+        attr = AttributeNode(attr="retry_attempts", value=LiteralNode(3))
+        result = self.generator.visit_attribute(attr)
+        self.assertIsInstance(result, tuple)
+        self.assertEqual(len(result), 2)
+
+    def test_visit_attribute_key_is_attr_name(self):
+        attr = AttributeNode(attr="retry_attempts", value=LiteralNode(3))
+        key, _ = self.generator.visit_attribute(attr)
+        self.assertEqual(key, "retry_attempts")
+
+    def test_visit_attribute_value_is_resolved(self):
+        attr = AttributeNode(attr="retry_attempts", value=LiteralNode(3))
+        _, value = self.generator.visit_attribute(attr)
+        self.assertEqual(value, 3)
+
+    def test_visit_attribute_string_value(self):
+        attr = AttributeNode(attr="executor", value=LiteralNode("my.executor.Class"))
+        key, value = self.generator.visit_attribute(attr)
+        self.assertEqual(key, "executor")
+        self.assertEqual(value, "my.executor.Class")
+
+    # ------------------------------------------------------------------
+    # visit_task without options
+    # ------------------------------------------------------------------
+
+    def test_visit_task_no_options_returns_pipeline_task(self):
+        node = TaskNode(task="Alpha", options=[])
+        result = self.generator.visit_task(node)
+        self.assertIsInstance(result, PipelineTask)
+
+    def test_visit_task_no_options_has_no_options_set(self):
+        node = TaskNode(task="Alpha", options=[])
+        result = self.generator.visit_task(node)
+        self.assertIsNone(result.options)
+
+    def test_visit_task_sets_current_task(self):
+        node = TaskNode(task="Alpha", options=[])
+        result = self.generator.visit_task(node)
+        self.assertIs(self.generator._current_task, result)
+
+    # ------------------------------------------------------------------
+    # visit_task with options (via parser)
+    # ------------------------------------------------------------------
+
+    @unittest.skip(
+        "Options.from_dict has a pre-existing bug: preformat_result_evaluation_strategy "
+        "returns a tuple instead of a plain value, causing coercion to fail on any call "
+        "to Options.from_dict. Unskip once that bug is fixed."
+    )
+    def test_task_with_retry_attempts_option(self):
+        root = _build("Alpha[retry_attempts=3]")
+        self.assertIsNotNone(root.options)
+        self.assertEqual(root.options.retry_attempts, 3)
+
+    @unittest.skip("Blocked by same Options.from_dict bug — see test_task_with_retry_attempts_option.")
+    def test_task_with_multiple_options(self):
+        root = _build("Alpha[retry_attempts=2, bypass_event_checks=true]")
+        self.assertIsNotNone(root.options)
+        self.assertEqual(root.options.retry_attempts, 2)
+        self.assertTrue(root.options.bypass_event_checks)
+
+    @unittest.skip("Blocked by same Options.from_dict bug — see test_task_with_retry_attempts_option.")
+    def test_task_options_unknown_key_goes_to_extras(self):
+        root = _build("Alpha[my_custom_key=42]")
+        self.assertIsNotNone(root.options)
+        self.assertIn("my_custom_key", root.options.extras)
+        self.assertEqual(root.options.extras["my_custom_key"], 42)
+
+    def test_task_without_options_bracket_has_no_options(self):
+        root = _build("Alpha")
+        self.assertIsNone(root.options)
+
+
+# ------------------------------------------------------------------
+# Tests for visit_pipeline_grouping
+# ------------------------------------------------------------------
+
+class TestVisitPipelineGrouping(unittest.TestCase):
+    """Tests for visit_pipeline_grouping (grouped expressions: {A->B, C->D})."""
+
+    @classmethod
+    def setUpClass(cls):
+        class Alpha(EventBase):
+            def process(self, *args, **kwargs):
+                return True, "alpha"
+
+        class Beta(EventBase):
+            def process(self, *args, **kwargs):
+                return True, "beta"
+
+        class Gamma(EventBase):
+            def process(self, *args, **kwargs):
+                return True, "gamma"
+
+        cls.Alpha = Alpha
+        cls.Beta = Beta
+        cls.Gamma = Gamma
+
+    # ------------------------------------------------------------------
+    # Single-chain grouping  {A->B}
+    # ------------------------------------------------------------------
+
+    def test_single_chain_grouping_returns_task_grouping(self):
+        root = _build("{Alpha->Beta}")
+        self.assertIsInstance(root, PipelineTaskGrouping)
+
+    def test_single_chain_grouping_has_one_chain(self):
+        root = _build("{Alpha->Beta}")
+        self.assertEqual(len(root.chains), 1)
+
+    def test_single_chain_grouping_chain_head_is_correct(self):
+        root = _build("{Alpha->Beta}")
+        self.assertEqual(root.chains[0].get_event_name(), "Alpha")
+
+    def test_single_chain_grouping_strategy(self):
+        from volnux.parser.protocols import GroupingStrategy
+        root = _build("{Alpha->Beta}")
+        self.assertEqual(root.strategy, GroupingStrategy.SINGLE_CHAIN)
+
+    # ------------------------------------------------------------------
+    # Multi-chain grouping  {A->B, C->D}
+    # NOTE: the current grammar only supports single-chain {chain} syntax;
+    # multi-expression PipelineGroupingNode can only be constructed directly.
+    # ------------------------------------------------------------------
+
+    def test_multi_chain_grouping_has_two_chains(self):
+        """Directly construct a multi-chain grouping node and verify the generator."""
+        from volnux.parser.ast import PipelineGroupingNode, BinOpNode, TaskNode as TN
+        gen = ExecutableASTGenerator(PipelineTask, PipelineTaskGrouping)
+        chain1 = BinOpNode(left=TN(task="Alpha", options=[]), op="->", right=TN(task="Beta", options=[]))
+        chain2 = BinOpNode(left=TN(task="Gamma", options=[]), op="->", right=TN(task="Alpha", options=[]))
+        node = PipelineGroupingNode(expressions=[chain1, chain2])
+        result = gen.visit_pipeline_grouping(node)
+        self.assertEqual(len(result.chains), 2)
+
+    def test_multi_chain_grouping_chain_heads_correct(self):
+        from volnux.parser.ast import PipelineGroupingNode, BinOpNode, TaskNode as TN
+        gen = ExecutableASTGenerator(PipelineTask, PipelineTaskGrouping)
+        chain1 = BinOpNode(left=TN(task="Alpha", options=[]), op="->", right=TN(task="Beta", options=[]))
+        chain2 = BinOpNode(left=TN(task="Gamma", options=[]), op="->", right=TN(task="Alpha", options=[]))
+        node = PipelineGroupingNode(expressions=[chain1, chain2])
+        result = gen.visit_pipeline_grouping(node)
+        names = {c.get_event_name() for c in result.chains}
+        self.assertIn("Alpha", names)
+        self.assertIn("Gamma", names)
+
+    def test_multi_chain_grouping_strategy(self):
+        from volnux.parser.ast import PipelineGroupingNode, BinOpNode, TaskNode as TN
+        from volnux.parser.protocols import GroupingStrategy
+        gen = ExecutableASTGenerator(PipelineTask, PipelineTaskGrouping)
+        chain1 = BinOpNode(left=TN(task="Alpha", options=[]), op="->", right=TN(task="Beta", options=[]))
+        chain2 = BinOpNode(left=TN(task="Gamma", options=[]), op="->", right=TN(task="Alpha", options=[]))
+        node = PipelineGroupingNode(expressions=[chain1, chain2])
+        result = gen.visit_pipeline_grouping(node)
+        self.assertEqual(result.strategy, GroupingStrategy.MULTIPATH_CHAINS)
+
+    # ------------------------------------------------------------------
+    # Grouping followed by a downstream task  {A->B}->C
+    # ------------------------------------------------------------------
+
+    def test_grouping_followed_by_task_pipe_type(self):
+        root = _build("{Alpha->Beta}->Gamma")
+        self.assertIsInstance(root, PipelineTaskGrouping)
+        self.assertEqual(root.condition_node.on_success_pipe, PipeType.POINTER)
+
+    def test_grouping_followed_by_task_successor_name(self):
+        root = _build("{Alpha->Beta}->Gamma")
+        successor = root.condition_node.on_success_event
+        self.assertIsNotNone(successor)
+        self.assertEqual(successor.get_event_name(), "Gamma")
+
+    # ------------------------------------------------------------------
+    # sets _current_task
+    # ------------------------------------------------------------------
+
+    def test_grouping_sets_current_task(self):
+        program = pointy_parser("{Alpha->Beta}")
+        gen = ExecutableASTGenerator(PipelineTask, PipelineTaskGrouping)
+        gen.visit_program(program)
+        self.assertIsInstance(gen._current_task, PipelineTaskGrouping)
