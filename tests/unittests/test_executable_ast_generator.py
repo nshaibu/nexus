@@ -659,3 +659,166 @@ class TestVisitPipelineGrouping(unittest.TestCase):
         gen = ExecutableASTGenerator(PipelineTask, PipelineTaskGrouping)
         gen.visit_program(program)
         self.assertIsInstance(gen._current_task, PipelineTaskGrouping)
+
+
+class TestVisitIndexExpr(unittest.TestCase):
+    """Unit tests for ExecutableASTGenerator.visit_index_expr."""
+
+    def setUp(self):
+        self.generator = ExecutableASTGenerator(PipelineTask, PipelineTaskGrouping)
+
+    def test_index_into_list_literal_returns_element(self):
+        from volnux.parser.ast import ListNode, LiteralNode, IndexExprNode
+
+        lst = ListNode([LiteralNode(10), LiteralNode(20)])
+        idx = LiteralNode(1)
+        node = IndexExprNode(collection=lst, index=idx)
+        result = self.generator.visit_index_expr(node)
+        self.assertEqual(result, 20)
+
+    def test_index_negative_index(self):
+        from volnux.parser.ast import ListNode, LiteralNode, IndexExprNode
+
+        lst = ListNode([LiteralNode(10), LiteralNode(20)])
+        idx = LiteralNode(-1)
+        node = IndexExprNode(collection=lst, index=idx)
+        result = self.generator.visit_index_expr(node)
+        self.assertEqual(result, 20)
+
+    def test_index_out_of_bounds_raises(self):
+        from volnux.parser.ast import ListNode, LiteralNode, IndexExprNode
+        from volnux.parser.exceptions import PointyParseError
+
+        lst = ListNode([LiteralNode(1)])
+        idx = LiteralNode(10)
+        node = IndexExprNode(collection=lst, index=idx)
+        with self.assertRaises(PointyParseError):
+            self.generator.visit_index_expr(node)
+
+    def test_index_into_map_by_key(self):
+        from volnux.parser.ast import MapNode, LiteralNode, IndexExprNode
+
+        mp = MapNode({"a": LiteralNode(1)})
+        idx = LiteralNode("a")
+        node = IndexExprNode(collection=mp, index=idx)
+        result = self.generator.visit_index_expr(node)
+        self.assertEqual(result, 1)
+
+    def test_index_into_string(self):
+        from volnux.parser.ast import LiteralNode, IndexExprNode
+
+        coll = LiteralNode("abc")
+        idx = LiteralNode(1)
+        node = IndexExprNode(collection=coll, index=idx)
+        result = self.generator.visit_index_expr(node)
+        self.assertEqual(result, "b")
+
+
+class TestVisitRetryBehavior(unittest.TestCase):
+    """Unit tests for ExecutableASTGenerator.visit_retry."""
+
+    def setUp(self):
+        class Alpha(EventBase):
+            def process(self, *a, **k):
+                return True, "alpha"
+
+        self.Alpha = Alpha
+        self.generator = ExecutableASTGenerator(PipelineTask, PipelineTaskGrouping)
+
+    def test_visit_retry_applies_attempts_to_task_options(self):
+        from volnux.parser.ast import RetryNode, TaskNode, LiteralNode
+
+        task = TaskNode(task="Alpha", options=[])
+        retry = RetryNode(job=task, attempts=LiteralNode(3))
+        result = self.generator.visit_retry(retry)
+        # options should exist and carry retry_attempts
+        self.assertIsNotNone(result.options)
+        self.assertEqual(result.options.retry_attempts, 3)
+
+    def test_visit_retry_nonint_raises(self):
+        from volnux.parser.ast import RetryNode, TaskNode, LiteralNode
+        from volnux.parser.exceptions import PointyParseError
+
+        task = TaskNode(task="Alpha", options=[])
+        retry = RetryNode(job=task, attempts=LiteralNode("three"))
+        with self.assertRaises(PointyParseError):
+            self.generator.visit_retry(retry)
+
+
+class TestVisitComparisonAndNullCoalesce(unittest.TestCase):
+    """Tests for comparison expression evaluation and null-coalesce."""
+
+    def setUp(self):
+        self.generator = ExecutableASTGenerator(PipelineTask, PipelineTaskGrouping)
+
+    def test_comparison_equality_true(self):
+        from volnux.parser.ast import ComparisonExprNode, LiteralNode
+
+        node = ComparisonExprNode(operator="==", left=LiteralNode(1), right=LiteralNode(1))
+        result = self.generator.visit_comparison_expr(node)
+        self.assertTrue(result)
+
+    def test_comparison_ordering(self):
+        from volnux.parser.ast import ComparisonExprNode, LiteralNode
+
+        node = ComparisonExprNode(operator="<", left=LiteralNode(1), right=LiteralNode(2))
+        result = self.generator.visit_comparison_expr(node)
+        self.assertTrue(result)
+
+    def test_null_coalesce_left_null_returns_right(self):
+        from volnux.parser.ast import NullCoalesceExprNode, LiteralNode
+
+        left = LiteralNode("null", type=None)
+        right = LiteralNode(5)
+        node = NullCoalesceExprNode(left=left, right=right)
+        result = self.generator.visit_null_coalesce(node)
+        self.assertEqual(result, 5)
+
+    def test_null_coalesce_left_non_null_returns_left(self):
+        from volnux.parser.ast import NullCoalesceExprNode, LiteralNode
+
+        left = LiteralNode(7)
+        right = LiteralNode(5)
+        node = NullCoalesceExprNode(left=left, right=right)
+        result = self.generator.visit_null_coalesce(node)
+        self.assertEqual(result, 7)
+
+    def test_comparison_equality_false(self):
+        from volnux.parser.ast import ComparisonExprNode, LiteralNode
+
+        node = ComparisonExprNode(operator="==", left=LiteralNode(1), right=LiteralNode(2))
+        result = self.generator.visit_comparison_expr(node)
+        self.assertFalse(result)
+
+    def test_comparison_not_equal_true(self):
+        from volnux.parser.ast import ComparisonExprNode, LiteralNode
+
+        node = ComparisonExprNode(operator="!=", left=LiteralNode(1), right=LiteralNode(2))
+        result = self.generator.visit_comparison_expr(node)
+        self.assertTrue(result)
+
+    def test_comparison_ge_and_le(self):
+        from volnux.parser.ast import ComparisonExprNode, LiteralNode
+
+        node_ge = ComparisonExprNode(operator=">=", left=LiteralNode(3), right=LiteralNode(2))
+        node_le = ComparisonExprNode(operator="<=", left=LiteralNode(2), right=LiteralNode(2))
+        self.assertTrue(self.generator.visit_comparison_expr(node_ge))
+        self.assertTrue(self.generator.visit_comparison_expr(node_le))
+
+    def test_comparison_mixed_type_ordering_returns_false(self):
+        from volnux.parser.ast import ComparisonExprNode, LiteralNode
+
+        node = ComparisonExprNode(operator="<", left=LiteralNode("a"), right=LiteralNode(1))
+        result = self.generator.visit_comparison_expr(node)
+        # Incomparable types should return False rather than raising
+        self.assertFalse(result)
+
+    def test_comparison_string_eq_number(self):
+        from volnux.parser.ast import ComparisonExprNode, LiteralNode
+
+        node = ComparisonExprNode(operator="==", left=LiteralNode("1"), right=LiteralNode(1))
+        result = self.generator.visit_comparison_expr(node)
+        # Equality between different-typed literals should follow Python semantics
+        self.assertFalse(result)
+
+
