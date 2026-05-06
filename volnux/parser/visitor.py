@@ -29,10 +29,8 @@ if typing.TYPE_CHECKING:
 
 
 class ASTVisitorInterface(ABC):
-
-    def _safe_index(
-        self, target: typing.Any, index: typing.Any
-    ) -> typing.Optional[typing.Any]:
+    @staticmethod
+    def _safe_index(target: typing.Any, index: typing.Any) -> typing.Optional[typing.Any]:
         """
         Safely index into a collection, returning None on error.
 
@@ -70,7 +68,8 @@ class ASTVisitorInterface(ABC):
         except (KeyError, IndexError, TypeError):
             return None
 
-    def _compare(self, operator: str, left: typing.Any, right: typing.Any) -> bool:
+    @staticmethod
+    def _compare(operator: str, left: typing.Any, right: typing.Any) -> bool:
         """
         Perform comparison operation.
 
@@ -108,7 +107,8 @@ class ASTVisitorInterface(ABC):
 
         return False
 
-    def _is_truthy(self, value: typing.Any) -> bool:
+    @staticmethod
+    def _is_truthy(value: typing.Any) -> bool:
         """
         Determine if a value is truthy.
 
