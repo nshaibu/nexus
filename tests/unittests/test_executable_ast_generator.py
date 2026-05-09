@@ -822,3 +822,62 @@ class TestVisitComparisonAndNullCoalesce(unittest.TestCase):
         self.assertFalse(result)
 
 
+class TestVisitMetaTask(unittest.TestCase):
+    """Unit tests for ExecutableASTGenerator.visit_meta_task."""
+
+    def setUp(self):
+        self.generator = ExecutableASTGenerator(PipelineTask, PipelineTaskGrouping)
+
+    def test_visit_meta_task_returns_pipeline_task_and_sets_event(self):
+        from volnux.parser.ast import MetaTaskNode
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        node = MetaTaskNode(mode="MAP", template_task="FetchUserData", options=[])
+
+        # Patch Options.from_dict to return a simple object with extras to avoid
+        # exercising the real Options implementation in this unit test.
+        with patch("volnux.parser.code_gen.Options.from_dict") as mock_from:
+            mock_from.return_value = SimpleNamespace(extras={})
+            result = self.generator.visit_meta_task(node)
+
+        self.assertIsInstance(result, PipelineTask)
+        # The pipeline task event is the meta mode (MAP)
+        self.assertEqual(result.get_event_name(), "MAP")
+
+    def test_visit_meta_task_attaches_template_class_in_extras(self):
+        from volnux.parser.ast import MetaTaskNode
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        node = MetaTaskNode(
+            mode="MAP",
+            template_task="FetchUserData",
+            options=[],
+            template_event_namespace="pypi",
+        )
+
+        with patch("volnux.parser.code_gen.Options.from_dict") as mock_from:
+            mock_from.return_value = SimpleNamespace(extras={})
+            result = self.generator.visit_meta_task(node)
+
+        self.assertIsNotNone(result.options)
+        self.assertIn("template_class", result.options.extras)
+        self.assertEqual(result.options.extras["template_class"], "pypi::FetchUserData")
+
+    def test_visit_meta_task_fallback_options_used_when_options_instantiation_fails(self):
+        from volnux.parser.ast import MetaTaskNode
+        from unittest.mock import patch
+
+        node = MetaTaskNode(mode="MAP", template_task="FetchUserData", options=[])
+
+        # Simulate Options.from_dict raising to exercise fallback path
+        with patch("volnux.parser.code_gen.Options.from_dict", side_effect=Exception("boom")):
+            result = self.generator.visit_meta_task(node)
+
+        self.assertIsNotNone(result.options)
+        # FallbackOptions exposes .extras per the generator implementation
+        self.assertTrue(hasattr(result.options, "extras"))
+        self.assertEqual(result.options.extras.get("template_class"), "FetchUserData")
+
+

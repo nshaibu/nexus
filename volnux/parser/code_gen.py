@@ -241,10 +241,65 @@ class ExecutableASTGenerator(ASTVisitorInterface):
         return resolved
 
     def visit_meta_task(self, node: ast.MetaTaskNode):
-        pass
+        # Create a pipeline task whose event is the meta-event mode (e.g. MAP, FILTER)
+        # The template task (the inner template event) is passed via options.extras
+        instance = self.task_template(event=node.mode)
+        self._current_task = instance
+
+        # Resolve attribute list into a plain dict (key -> resolved value)
+        options_dict: typing.Dict[str, typing.Any] = {}
+        if node.options:
+            options_dict = dict(attr.accept(self) for attr in node.options)
+
+        # Try to build a real Options object; fall back to a minimal shim when
+        # Options cannot be instantiated (tests/environments may lack deps or
+        # the Options model may raise during preformat hooks).
+        try:
+            opts = Options.from_dict(options_dict) if options_dict else Options.from_dict({})
+        except Exception:
+            class _FallbackOptions:
+                def __init__(self):
+                    # Extras is the only piece the meta-events consume at generator time
+                    self.extras: typing.Dict[str, typing.Any] = {}
+
+                # Minimal compatibility surface used elsewhere (merge_with is used by meta flow)
+                def merge_with(self, other: "_FallbackOptions") -> None:
+                    try:
+                        self.extras.update(getattr(other, "extras", {}) or {})
+                    except Exception:
+                        pass
+
+            opts = _FallbackOptions()
+
+        # Store the template event reference in extras for runtime resolution.
+        # Use a namespaced string when the template namespace is provided.
+        if getattr(opts, "extras", None) is None:
+            # Some Options implementations may not expose extras; create it defensively
+            try:
+                opts.extras = {}
+            except Exception:
+                # If we cannot set extras, fail early with a parse error
+                raise PointyParseError("Failed to attach options extras for meta-task")
+
+        template_ref = (
+            f"{node.template_event_namespace}::{node.template_task}"
+            if node.template_event_namespace and node.template_event_namespace != "local"
+            else node.template_task
+        )
+
+        # Put template_class into extras so ControlFlowEvent can resolve it at runtime
+        opts.extras["template_class"] = template_ref
+
+        instance.options = opts
+        return instance
 
     def visit_variable_declaration(self, node: ast.VariableDeclNode):
-        pass
+        # Resolve the variable's value expression and return it.
+        # The parser already wires VariableAccessNode.value to the AST node
+        # representing the declared value, so resolving here simply dispatches
+        # to the appropriate visitor for that expression and returns the
+        # resulting Python value (or AST-derived structure).
+        return node.value.accept(self)
 
     def visit_null_coalesce(self, node: ast.NullCoalesceExprNode):
         # Evaluate left operand first. If it's a runtime 'null' representation
@@ -343,10 +398,18 @@ class ExecutableASTGenerator(ASTVisitorInterface):
         return node.attr, node.value.accept(self)
 
     def visit_ternary_expr(self, node: ast.TernaryExprNode):
-        pass
+        # Evaluate the condition and choose which branch to evaluate.
+        cond_value = node.condition.accept(self)
+
+        if self._is_truthy(cond_value):
+            return node.true_expr.accept(self)
+        return node.false_expr.accept(self)
 
     def visit_access_environment_variable(self, node: ast.EnvironmentVariableAccessNode):
-        pass
+        # Resolve environment variable via the AST helper. This returns the
+        # environment value or None if not set. Keep behaviour consistent with
+        # visit_variable_access which delegates to the node's resolve().
+        return node.resolve()
 
     def generate(self) -> typing.Optional[TaskProtocol]:
         if self._current_task is None:

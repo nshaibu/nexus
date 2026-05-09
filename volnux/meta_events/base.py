@@ -8,7 +8,7 @@ from collections import deque
 from volnux.typing import TypeAlias
 from volnux.task import PipelineTask
 from volnux.parser.options import Options
-from volnux.base import EventBase, EventType
+from volnux.event.base import EventBase, EventType
 from volnux.constants import EMPTY
 from volnux.result import EventResult, ResultSet
 from volnux.signal.handlers.event_initialiser import ExtraEventInitKwargs
