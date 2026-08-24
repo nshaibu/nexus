@@ -7,13 +7,13 @@ import inspect
 from pathlib import Path
 from importlib import import_module
 from abc import ABC, abstractmethod
-from volnux.conf import ConfigLoader
+from volnux.config import VolnuxConfig
 from volnux import EventBase
 
 
 logger = logging.getLogger(__name__)
 
-CONF = ConfigLoader.get_lazily_loaded_config()
+CONF = VolnuxConfig.get_instance()
 
 PROJECT_ROOT = CONF.PROJECT_ROOT_DIR
 

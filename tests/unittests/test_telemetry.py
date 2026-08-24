@@ -3,10 +3,15 @@ import unittest
 
 from volnux import EventBase
 from volnux.executors.remote_executor import RemoteExecutor
-from volnux.telemetry import (get_failed_events,
-                                      get_failed_network_ops, get_metrics,
-                                      get_retry_stats, get_slow_events,
-                                      get_slow_network_ops, monitor_events)
+from volnux.telemetry import (
+    get_failed_events,
+    get_failed_network_ops,
+    get_metrics,
+    get_retry_stats,
+    get_slow_events,
+    get_slow_network_ops,
+    monitor_events,
+)
 from volnux.telemetry.factory import TelemetryLoggerFactory
 from volnux.telemetry.logger import StandardTelemetryLogger
 from volnux.telemetry.network import network_telemetry

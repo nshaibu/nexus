@@ -4,8 +4,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from volnux.base import (EventBase, ExecutorInitializerConfig, RetryPolicy,
-                         _RetryMixin)
+from volnux.base import EventBase, ExecutorInitializerConfig, RetryPolicy, _RetryMixin
 from volnux.constants import EMPTY, MAX_BACKOFF, MAX_BACKOFF_FACTOR
 from volnux.exceptions import MaxRetryError, StopProcessingError, SwitchTask
 from volnux.result import EventResult, ResultSet

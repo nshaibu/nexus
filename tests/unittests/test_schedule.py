@@ -72,12 +72,8 @@ def test_validate_trigger_args_valid(schedule_mixin_instance):
     trigger = ScheduleMixin.ScheduleTrigger.DATE
     trigger_args = {"run_date": "2023-01-01"}
 
-    with patch(
-        "volnux.utils.get_function_call_args", return_value=trigger_args
-    ):
-        with patch(
-            "volnux.utils.get_expected_args", return_value={"run_date": None}
-        ):
+    with patch("volnux.utils.get_function_call_args", return_value=trigger_args):
+        with patch("volnux.utils.get_expected_args", return_value={"run_date": None}):
             # Should not raise ValidationError
             schedule_mixin_instance._validate_trigger_args(trigger, trigger_args)
 
@@ -86,12 +82,8 @@ def test_validate_trigger_args_invalid(schedule_mixin_instance):
     trigger = ScheduleMixin.ScheduleTrigger.DATE
     trigger_args = {}
 
-    with patch(
-        "volnux.utils.get_function_call_args", return_value=trigger_args
-    ):
-        with patch(
-            "volnux.utils.get_expected_args", return_value={"run_date": None}
-        ):
+    with patch("volnux.utils.get_function_call_args", return_value=trigger_args):
+        with patch("volnux.utils.get_expected_args", return_value={"run_date": None}):
             with pytest.raises(ValidationError) as exc_info:
                 schedule_mixin_instance._validate_trigger_args(trigger, trigger_args)
             assert "Invalid trigger arguments" in str(exc_info.value)
