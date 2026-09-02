@@ -16,7 +16,7 @@ from volnux.engine.base import TaskNode, EngineResult, EngineExecutionResult
 if typing.TYPE_CHECKING:
     from volnux.engine.base import EngineResult
     from volnux.parser.protocols import TaskType
-    from volnux.pipeline import Pipeline
+    from volnux.execution.pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
 

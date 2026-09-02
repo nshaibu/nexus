@@ -10,7 +10,7 @@ from .engine.snapshot import ContextSnapshot
 from volnux.execution.context import ExecutionContext
 
 if typing.TYPE_CHECKING:
-    from volnux.pipeline import Pipeline
+    from volnux.execution.pipeline import Pipeline
     from volnux.engine.base import WorkflowEngine
 
 

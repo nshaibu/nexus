@@ -22,7 +22,7 @@ from .snapshot import (
 from volnux.import_utils import import_string as import_class
 
 if typing.TYPE_CHECKING:
-    from volnux.pipeline import Pipeline
+    from volnux.execution.pipeline import Pipeline
     from volnux.parser.protocols import TaskType
     from volnux.engine.base import WorkflowEngine, TaskNode
     from volnux.execution.context import ExecutionContext

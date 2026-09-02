@@ -10,7 +10,7 @@ from volnux.utils import get_function_call_args, get_expected_args
 from volnux.exceptions import ValidationError
 
 if typing.TYPE_CHECKING:
-    from volnux.pipeline import Pipeline, BatchPipeline
+    from volnux.execution.pipeline import Pipeline, BatchPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ class _PipeLineJob:
         pipeline: typing.Union["Pipeline", "BatchPipeline"],
         scheduler: BackgroundScheduler,
     ):
-        from volnux.pipeline import BatchPipeline
+        from volnux.execution.pipeline import BatchPipeline
 
         self._pipeline = pipeline
         self._is_batch = isinstance(pipeline, BatchPipeline)
